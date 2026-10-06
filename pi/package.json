@@ -1,0 +1,19 @@
+{
+  "name": "pi-lobotomy",
+  "version": "0.1.0",
+  "description": "One brain per task for pi: route the main chat, plan mode, quick questions, reviews, commits and compaction to the models you choose. /lobotomy opens the config screen.",
+  "keywords": ["pi-package", "model", "routing", "thinking"],
+  "license": "MIT",
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions/lobotomy/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "test": "node --test extensions/lobotomy/*.test.ts"
+  }
+}

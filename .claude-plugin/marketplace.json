@@ -1,0 +1,14 @@
+{
+  "name": "lobotomy",
+  "owner": { "name": "James Gentile" },
+  "metadata": { "description": "One brain per task: per-task model routing for Claude Code" },
+  "plugins": [
+    {
+      "name": "lobotomy",
+      "source": "./claude-code",
+      "description": "Route the main loop, plan mode, subagents, review, commits, compaction and quick questions to the model you choose; /lobotomy opens the config pane.",
+      "version": "0.1.0",
+      "category": "productivity"
+    }
+  ]
+}

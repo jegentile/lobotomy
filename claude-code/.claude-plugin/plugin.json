@@ -1,0 +1,8 @@
+{
+  "name": "lobotomy",
+  "version": "0.1.0",
+  "description": "One brain per task: route the main loop, plan mode, subagents, review, commits, compaction and quick questions to the model you choose. /lobotomy opens the config pane.",
+  "author": { "name": "James Gentile" },
+  "keywords": ["model", "routing", "subagents", "effort", "tui"],
+  "types": "./types/index.d.ts"
+}

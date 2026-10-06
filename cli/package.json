@@ -1,0 +1,19 @@
+{
+  "name": "lobotomy-cli",
+  "version": "0.1.0",
+  "description": "One brain per task: write per-task model routes into the config files of OpenCode, Goose, Aider, Continue and Crush.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "lobotomy": "./bin/lobotomy.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts src/adapters/*.test.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0"
+  }
+}
