@@ -18,26 +18,26 @@
   <rect x="262" y="332" width="76" height="32" rx="8" style="fill:#1d1d1f;stroke:#fff;stroke-width:3"/>
   <text x="300" y="356" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="21" font-weight="700" fill="#fff">&gt;_</text>
 
-  <!-- head, open -->
-  <path class="ink" d="M180 170c0-40 54-62 120-62s120 22 120 62v110c0 36-54 56-120 56s-120-20-120-56z"/>
-  <path class="ink" d="M196 172c0-18 46-30 104-30s104 12 104 30c0 18-46 30-104 30s-104-12-104-30z"/>
-  <!-- lid on a hinge -->
-  <g transform="rotate(-30 182 172)">
-    <path class="ink" d="M182 172c0-44 54-70 118-70s118 26 118 70z"/>
-    <path class="thin" d="M292 104c-4-16 4-26 12-30M310 102c2-14 12-20 20-22"/>
+  <!-- head: rounded, with side bolts -->
+  <circle cx="176" cy="226" r="16" class="ink"/>
+  <circle cx="424" cy="226" r="16" class="ink"/>
+  <path class="thin" d="M170 226h12M418 226h12"/>
+  <path class="ink" d="M184 172c0-40 50-62 116-62s116 22 116 62v98c0 44-40 70-116 70s-116-26-116-70z"/>
+  <path class="ink" d="M198 172c0-18 46-30 102-30s102 12 102 30c0 18-46 30-102 30s-102-12-102-30z"/>
+  <!-- lid on a hinge, with an antenna -->
+  <g transform="rotate(-30 184 172)">
+    <path class="ink" d="M184 172c0-44 52-70 116-70s116 26 116 70z"/>
+    <path class="thin" d="M300 102v-26"/>
+    <circle cx="300" cy="68" r="9" class="ink pink"/>
   </g>
-  <circle cx="182" cy="172" r="7" class="ink"/>
+  <circle cx="184" cy="172" r="7" class="ink"/>
 
-  <!-- face + bandage -->
-  <ellipse cx="258" cy="236" rx="10" ry="13" fill="#1d1d1f"/>
-  <ellipse cx="342" cy="236" rx="10" ry="13" fill="#1d1d1f"/>
-  <circle cx="262" cy="231" r="3.5" fill="#fff"/>
-  <circle cx="346" cy="231" r="3.5" fill="#fff"/>
-  <path class="thin" d="M278 282c12 12 32 12 44 0"/>
-  <g transform="rotate(-22 392 262)">
-    <rect x="364" y="254" width="56" height="16" rx="5" class="ink"/>
-    <path class="thin" d="M380 258v8M392 258v8M404 258v8"/>
-  </g>
+  <!-- face: LED eyes, small smile -->
+  <rect x="240" y="222" width="34" height="26" rx="8" fill="#1d1d1f"/>
+  <rect x="326" y="222" width="34" height="26" rx="8" fill="#1d1d1f"/>
+  <rect x="248" y="228" width="10" height="7" rx="3" fill="#fff"/>
+  <rect x="334" y="228" width="10" height="7" rx="3" fill="#fff"/>
+  <path class="thin" d="M282 282c10 10 26 10 36 0"/>
 
   <!-- small brain going in -->
   <g transform="translate(300 150) scale(0.62)"><use href="#brain"/></g>
