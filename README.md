@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/hero.svg" width="880" alt="Cartoon: a coding agent with the top of its head open while a gloved hand slots in a small brain tagged explore / haiku; bigger brains tagged plan / opus and review / sonnet wait on a tray. Caption: One brain per task.">
+</p>
+
 # Lobotomy: one brain per task
 
 Lobotomy lets you assign a different model (and thinking effort) to each kind
