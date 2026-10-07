@@ -15,7 +15,7 @@ const ROUTES: Stored = {
   },
 }
 
-const EMPTY: Stored = { config: { tasks: {} } }
+const EMPTY: Stored = { config: { tasks: {}, models: {} } }
 
 /**
  * The engine beneath the plugin: what `session.start` and the hooks call.
@@ -125,10 +125,10 @@ test('/lobotomy set and clear persist to the store', async ($, on) => {
   await $.session.start(SESSION)
   const run = (args: string) => $.command.run({ command: 'lobotomy', args, ...COMPOSER })
   expect((await run('set plan opus high')).text).toMatch(/plan → opus @ high/)
-  expect(written.config).toEqual({ tasks: { plan: { model: 'opus', level: 'high' } } })
+  expect(written.config).toEqual({ tasks: { plan: { model: 'opus', level: 'high' } }, models: {} })
   expect((await run('status')).text).toMatch(/plan\s+opus/)
   await run('clear plan')
-  expect(written.config).toEqual({ tasks: {} })
+  expect(written.config).toEqual({ tasks: {}, models: {} })
 })
 
 test('the pane picks a model per task on every surface with pickers', async ($, on) => {
@@ -145,12 +145,12 @@ test('the pane picks a model per task on every surface with pickers', async ($, 
     expect(await ui.find({ type: 'Text', text: /one brain per task/ })).toBeDefined()
     await ui.select({ key: 'model:plan', value: 'opus' })
     await ui.select({ key: 'level:plan', value: 'xhigh' })
-    expect(written.config).toEqual({ tasks: { plan: { model: 'opus', level: 'xhigh' } } })
+    expect(written.config).toEqual({ tasks: { plan: { model: 'opus', level: 'xhigh' } }, models: {} })
     await ui.select({ key: 'model:quick', value: 'custom' })
     await ui.input({ key: 'custom:quick', text: 'claude-haiku-4-5' })
     expect(written.config).toMatchObject({ tasks: { quick: { model: 'claude-haiku-4-5' } } })
     await ui.press({ key: 'reset' })
-    expect(written.config).toEqual({ tasks: {} })
+    expect(written.config).toEqual({ tasks: {}, models: {} })
     await ui.unmount()
   }
 })

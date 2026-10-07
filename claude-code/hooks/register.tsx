@@ -16,12 +16,13 @@ import {
   EMPTY_CONFIG,
   HELP,
   LEVEL_CHOICES,
-  MODEL_CHOICES,
   TASKS,
   describeConfig,
   isLevel,
+  isModelName,
   isRouted,
   modelChoice,
+  modelNames,
   normalizeConfig,
   parseCommand,
   resolveMain,
@@ -29,6 +30,7 @@ import {
   resolveSpawn,
   routeFor,
   taskForSkill,
+  withModel,
   withRoute,
 } from './routing'
 
@@ -46,13 +48,14 @@ type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /** A route's model as the engine accepts it: aliases become full ids. */
 async function modelId($: EngineInterface, model: string): Promise<string> {
+  const catalog = (await read($, config)).models
   const vars: Record<string, string | undefined> = {
     ANTHROPIC_DEFAULT_HAIKU_MODEL: await $.env.get('ANTHROPIC_DEFAULT_HAIKU_MODEL'),
     ANTHROPIC_DEFAULT_SONNET_MODEL: await $.env.get('ANTHROPIC_DEFAULT_SONNET_MODEL'),
     ANTHROPIC_DEFAULT_OPUS_MODEL: await $.env.get('ANTHROPIC_DEFAULT_OPUS_MODEL'),
     ANTHROPIC_DEFAULT_FABLE_MODEL: await $.env.get('ANTHROPIC_DEFAULT_FABLE_MODEL'),
   }
-  return resolveModel(model, name => vars[name])
+  return resolveModel(model, name => vars[name], catalog)
 }
 
 /** Writes a change to the config atom and persists it in the plugin's store. */
@@ -140,6 +143,23 @@ export const register: Register = on => {
       case 'set': {
         await save($, c => withRoute(c, command.key, command.route))
         return { text: `${command.key} → ${describeRoute(command.route)}` }
+      }
+      case 'models': {
+        const models = Object.entries((await read($, config)).models).sort(([a], [b]) => a.localeCompare(b))
+        return {
+          text: models.length
+            ? models.map(([name, id]) => `${name.padEnd(16)} ${id}`).join('\n')
+            : 'no catalog yet; /lobotomy model add <name> <id> names a model from any provider your gateway serves.',
+        }
+      }
+      case 'model-add': {
+        await save($, c => withModel(c, command.name, command.id))
+        return { text: `model ${command.name} = ${command.id}; now /lobotomy set <task> ${command.name}` }
+      }
+      case 'model-rm': {
+        const had = (await read($, config)).models[command.name] !== undefined
+        await save($, c => withModel(c, command.name, undefined))
+        return { text: had ? `model ${command.name} removed (routes that named it now pass "${command.name}" through as-is)` : `no catalog entry "${command.name}"` }
       }
       case 'error':
         return { text: command.message }
@@ -274,7 +294,7 @@ export const register: Register = on => {
     const session = await $.session.model()
     const wide = (e.props.bodyColumns ?? 80) >= 70
 
-    const modelOptions = [...MODEL_CHOICES.map(value => ({ value })), { value: CUSTOM, label: 'custom…' }]
+    const modelOptions = [...modelNames(cfg).map(value => ({ value })), { value: CUSTOM, label: 'custom…' }]
     const levelOptions = LEVEL_CHOICES.map(value => ({ value }))
 
     const pick = (key: string, field: 'model' | 'level') => (value: string) => {
@@ -290,7 +310,7 @@ export const register: Register = on => {
 
     const row = (key: string, label: string, hint: string) => {
       const current = cfg.tasks[key] ?? {}
-      const choice = modelChoice(current.model)
+      const choice = modelChoice(current.model, cfg)
       const routed = isRouted(current.model) || isLevel(current.level)
       return (
         <Box key={`row-${key}`} flexDirection="column">
@@ -362,6 +382,41 @@ export const register: Register = on => {
               Agent overrides
             </Text>
             {overrides.map(type => row(`agent:${type}`, type.slice(0, 12), `the ${type} agent`))}
+          </Box>
+        )}
+        <Text> </Text>
+        <Text color="permission" bold>
+          Models
+        </Text>
+        {Object.entries(cfg.models)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, id]) => (
+            <Box key={`model-${name}`} flexDirection="row" gap={1}>
+              <Box width={12}>
+                <Text>{name}</Text>
+              </Box>
+              <Text dimColor>{id}</Text>
+              <Button key={`rm:${name}`} onPress={() => void save($, c => withModel(c, name, undefined))}>
+                remove
+              </Button>
+            </Box>
+          ))}
+        <Box flexDirection="row" gap={1}>
+          <Input
+            key="model-add"
+            label="add"
+            placeholder="name = model-id   (glm = glm-5p3-flash)"
+            value=""
+            onSubmit={(value: string) => {
+              const m = /^\s*([^\s=]+)\s*=\s*(\S+)\s*$/.exec(value) ?? /^\s*(\S+)\s+(\S+)\s*$/.exec(value)
+              if (!m || !isModelName(m[1] ?? '')) return
+              void save($, c => withModel(c, m[1] as string, m[2] as string))
+            }}
+          />
+        </Box>
+        {wide && (
+          <Box paddingLeft={2}>
+            <Text dimColor>names for models from any provider the session's gateway serves; they appear in every picker above</Text>
           </Box>
         )}
         <Text> </Text>

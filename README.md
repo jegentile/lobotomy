@@ -76,9 +76,12 @@ There is also an `edit` task for agents that apply edits with a separate model
 
 - **Claude Code** opens a pane. Tab moves between fields, Enter opens a
   picker, Esc closes. Each task has a model picker (`inherit`, `haiku`,
-  `sonnet`, `opus`, `fable`, or `custom…` for a full model id) and an effort
-  picker (`default`, `low`, `medium`, `high`, `xhigh`, `max`). Agent types the
-  session has offered appear as override rows. `r` resets, `q` closes.
+  `sonnet`, `opus`, `fable`, every name in your model catalog, or `custom…`
+  for a full model id) and an effort picker (`default`, `low`, `medium`,
+  `high`, `xhigh`, `max`). Agent types the session has offered appear as
+  override rows. A **Models** section lists the catalog, with a remove button
+  per entry and an `add` field that takes `name = model-id`. `r` resets, `q`
+  closes.
 - **pi** opens a settings list. Enter on a task opens a two-step picker: a
   model (every model you have credentials for; type to filter), then a thinking
   level. A `Save to` row chooses between the global file and the project file.
@@ -92,7 +95,57 @@ There is also an `edit` task for agents that apply edits with a separate model
 /lobotomy clear plan
 /lobotomy status
 /lobotomy reset
+/lobotomy model add glm glm-5p3-flash # Claude Code: name a model from another provider
+/lobotomy set explore glm             # ...then route to it by name
+/lobotomy models                      # the catalog
+/lobotomy model rm glm
 ```
+
+### Other providers (Fireworks, OpenRouter, LiteLLM, local)
+
+Claude Code sends every request of a session to one base URL, so to mix
+providers you point the session at a gateway that serves all of them and
+then name the models you want. Lobotomy's **model catalog** is the second
+half: a short name per model, offered in every picker and resolved to the
+provider's id when the request goes out.
+
+1. Point the session at the gateway. Fireworks' FireConnect keeps your Claude
+   login working for Claude models and serves its own catalog beside them:
+
+   ```json
+   // ~/.claude/settings.json
+   {
+     "env": {
+       "ANTHROPIC_BASE_URL": "https://api.fireworks.ai/inference",
+       "ANTHROPIC_CUSTOM_HEADERS": "X-Fireworks-Api-Key: fw_..."
+     }
+   }
+   ```
+
+   OpenRouter and a self-hosted LiteLLM work the same way with
+   `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; Ollama serves the same
+   endpoint locally at `http://localhost:11434`.
+
+2. Name the models, then route tasks to the names:
+
+   ```
+   /lobotomy model add glm glm-5p3-flash
+   /lobotomy model add ds  deepseek-flash-latest
+   /lobotomy set explore glm
+   /lobotomy set subagent glm
+   /lobotomy set quick ds
+   /lobotomy set plan opus
+   ```
+
+   `glm` and `ds` now sit in every picker next to `haiku` and `opus`. A name
+   is letters, digits, `.`, `_` or `-`, and cannot shadow an alias. Removing
+   an entry does not touch routes that used it; they pass the bare name
+   through, which the gateway will refuse, so re-add or re-route.
+
+The catalog is stored with the routes in the plugin's store. The aliases
+(`haiku`, `sonnet`, `opus`, `fable`) still resolve through the
+`ANTHROPIC_DEFAULT_<ALIAS>_MODEL` variables, so a gateway that pins those
+tiers keeps working unchanged.
 
 ### The CLI
 

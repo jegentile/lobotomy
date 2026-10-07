@@ -29,7 +29,7 @@ export const MODEL_CHOICES = ['inherit', 'haiku', 'sonnet', 'opus', 'fable'] as 
 export const LEVEL_CHOICES = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export const CUSTOM = 'custom'
 
-export const EMPTY_CONFIG: LobotomyConfig = { tasks: {} }
+export const EMPTY_CONFIG: LobotomyConfig = { tasks: {}, models: {} }
 
 /**
  * What each alias means when no `ANTHROPIC_DEFAULT_<ALIAS>_MODEL` variable
@@ -43,8 +43,14 @@ export const ALIAS_DEFAULTS: Record<string, string> = {
   fable: 'claude-fable-5-1',
 }
 
-/** `haiku` or `sonnet[1m]` → a full id, through the alias environment variables; anything else unchanged. */
-export function resolveModel(model: string, env: (name: string) => string | undefined): string {
+/**
+ * A route's model as the API wants it. A catalog name (`glm`) becomes the id
+ * it stands for; `haiku` or `sonnet[1m]` becomes a full id through the alias
+ * environment variables; anything else is already an id and passes unchanged.
+ */
+export function resolveModel(model: string, env: (name: string) => string | undefined, catalog: Record<string, string> = {}): string {
+  const named = catalog[model.trim()]
+  if (named) return named
   const match = /^([a-z]+)(\[1m\])?$/i.exec(model.trim())
   if (!match) return model
   const alias = (match[1] ?? '').toLowerCase()
@@ -143,7 +149,25 @@ export function withRoute(config: LobotomyConfig, key: string, route: LobotomyRo
   if (isLevel(route.level)) next.level = route.level
   if (next.model === undefined && next.level === undefined) delete tasks[key]
   else tasks[key] = next
-  return { tasks }
+  return { ...config, tasks }
+}
+
+/** A valid catalog name: short, no spaces, not an alias the picker already has. */
+export function isModelName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,23}$/i.test(name) && !(MODEL_CHOICES as readonly string[]).includes(name) && name !== CUSTOM
+}
+
+/** A copy of `config` with catalog entry `name` set to `id`, or removed when `id` is undefined. */
+export function withModel(config: LobotomyConfig, name: string, id: string | undefined): LobotomyConfig {
+  const models = { ...(config.models ?? {}) }
+  if (id === undefined) delete models[name]
+  else models[name] = id
+  return { ...config, models }
+}
+
+/** The names the picker offers: the aliases, then the catalog, then `custom`. */
+export function modelNames(config: LobotomyConfig): string[] {
+  return [...MODEL_CHOICES, ...Object.keys(config.models ?? {}).sort()]
 }
 
 /** Reads a stored value back into a config, dropping anything malformed. */
@@ -160,19 +184,28 @@ export function normalizeConfig(value: unknown): LobotomyConfig {
       if (clean.model !== undefined || clean.level !== undefined) tasks[key] = clean
     }
   }
-  return { tasks }
+  const models: Record<string, string> = {}
+  const rawModels = (value as { models?: unknown } | undefined)?.models
+  if (rawModels && typeof rawModels === 'object') {
+    for (const [name, id] of Object.entries(rawModels as Record<string, unknown>)) {
+      if (typeof id === 'string' && id.trim() && isModelName(name)) models[name] = id.trim()
+    }
+  }
+  return { tasks, models }
 }
 
-/** The Select value that shows `model`: an alias, `inherit`, or `custom`. */
-export function modelChoice(model: string | undefined): string {
+/** The Select value that shows `model`: an alias, a catalog name, `inherit`, or `custom`. */
+export function modelChoice(model: string | undefined, config: LobotomyConfig = EMPTY_CONFIG): string {
   if (!isRouted(model)) return 'inherit'
-  return (MODEL_CHOICES as readonly string[]).includes(model) ? model : CUSTOM
+  return modelNames(config).includes(model) ? model : CUSTOM
 }
 
 /** One line per configured route, for `/lobotomy status`. */
 export function describeConfig(config: LobotomyConfig): string {
   const keys = Object.keys(config.tasks)
-  if (keys.length === 0) return 'nothing routed; every task uses the session model.'
+  const catalog = Object.entries(config.models ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  const models = catalog.length ? '\n\nmodels:\n' + catalog.map(([name, id]) => `  ${name.padEnd(16)} ${id}`).join('\n') : ''
+  if (keys.length === 0) return 'nothing routed; every task uses the session model.' + models
   const order = new Map(TASKS.map((task, i) => [task.id, i] as const))
   keys.sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99) || a.localeCompare(b))
   return keys
@@ -181,7 +214,7 @@ export function describeConfig(config: LobotomyConfig): string {
       const level = isLevel(route.level) ? ` (effort ${route.level})` : ''
       return `${key.padEnd(18)} ${route.model ?? 'inherit'}${level}`
     })
-    .join('\n')
+    .join('\n') + models
 }
 
 /**
@@ -195,6 +228,9 @@ export type Command =
   | { kind: 'reset' }
   | { kind: 'clear'; key: string }
   | { kind: 'set'; key: string; route: LobotomyRoute }
+  | { kind: 'models' }
+  | { kind: 'model-add'; name: string; id: string }
+  | { kind: 'model-rm'; name: string }
   | { kind: 'error'; message: string }
 
 export function parseCommand(args: string): Command {
@@ -211,6 +247,21 @@ export function parseCommand(args: string): Command {
       return { kind: 'reset' }
     case 'clear':
       return key ? { kind: 'clear', key } : { kind: 'error', message: 'clear needs a task: /lobotomy clear plan' }
+    case 'models':
+      return { kind: 'models' }
+    case 'model': {
+      // model add <name> <id> | model rm <name>
+      const [, action, name, id] = words
+      if (action === 'add') {
+        if (!name || !id) return { kind: 'error', message: 'model add needs a name and an id: /lobotomy model add glm glm-5p3-flash' }
+        if (!isModelName(name)) return { kind: 'error', message: `"${name}" is not a usable name (letters, digits, . _ -; not an alias)` }
+        return { kind: 'model-add', name, id }
+      }
+      if (action === 'rm' || action === 'remove') {
+        return name ? { kind: 'model-rm', name } : { kind: 'error', message: 'model rm needs a name: /lobotomy model rm glm' }
+      }
+      return { kind: 'error', message: 'model add <name> <id> | model rm <name> | models' }
+    }
     case 'set': {
       if (!key || !model) return { kind: 'error', message: 'set needs a task and a model: /lobotomy set plan opus [high]' }
       if (level && !(LEVEL_CHOICES as readonly string[]).includes(level)) {
@@ -231,10 +282,14 @@ export const HELP = [
   '/lobotomy set <task> <model> [effort]',
   '/lobotomy clear <task>    route the task to the session model again',
   '/lobotomy reset           clear every route',
+  '/lobotomy models          list the model catalog',
+  '/lobotomy model add <name> <id>   name a model from any provider (glm = glm-5p3-flash)',
+  '/lobotomy model rm <name>',
   '/quick <question>         ask one question on the "quick" route',
   '',
   'tasks: ' + TASKS.map(t => t.id).join(', '),
   'overrides: agent:<type> (agent:Explore), skill:<name> (skill:code-review)',
-  'models: haiku, sonnet, opus, fable, inherit, or a full model id',
+  'models: haiku, sonnet, opus, fable, inherit, a catalog name, or a full model id',
+  'providers: point ANTHROPIC_BASE_URL at a gateway that serves them (Fireworks, OpenRouter, LiteLLM), then add names here',
   'effort: ' + LEVEL_CHOICES.join(', '),
 ].join('\n')

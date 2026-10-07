@@ -8,9 +8,11 @@ export type LobotomyRoute = { model?: string; level?: string }
 
 /**
  * The whole configuration: one route per task id or override key
- * (`main`, `plan`, `agent:Explore`, `skill:code-review`, ...).
+ * (`main`, `plan`, `agent:Explore`, `skill:code-review`, ...), and a model
+ * catalog: short names for models from any provider the session's gateway
+ * serves (`glm` → `glm-5p3-flash`), offered in every route's picker.
  */
-export type LobotomyConfig = { tasks: Record<string, LobotomyRoute> }
+export type LobotomyConfig = { tasks: Record<string, LobotomyRoute>; models: Record<string, string> }
 
 declare module 'claude-code' {
   interface PluginState {

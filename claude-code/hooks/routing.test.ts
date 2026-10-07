@@ -2,7 +2,10 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   describeConfig,
+  isModelName,
   modelChoice,
+  modelNames,
+  withModel,
   normalizeConfig,
   parseCommand,
   resolveMain,
@@ -39,7 +42,7 @@ describe('routing', () => {
     expect(resolveMain(config, { mode: 'plan' })?.task).toBe('plan')
     expect(resolveMain(config, { turnTask: 'quick', mode: 'plan' })?.route.model).toBe('haiku')
     expect(resolveMain(config, { turnTask: 'commit' })?.task).toBe('main')
-    expect(resolveMain({ tasks: {} }, { turnTask: 'quick', mode: 'plan' })).toBeUndefined()
+    expect(resolveMain({ tasks: {}, models: {} }, { turnTask: 'quick', mode: 'plan' })).toBeUndefined()
   })
 
   test('spawns: override, background, Explore, Plan, default; forks inherit', async () => {
@@ -59,7 +62,7 @@ describe('routing', () => {
   })
 
   test('withRoute sets, merges and clears', async () => {
-    let next = withRoute({ tasks: {} }, 'plan', { model: 'opus' })
+    let next = withRoute({ tasks: {}, models: {} }, 'plan', { model: 'opus' })
     expect(next.tasks.plan).toEqual({ model: 'opus' })
     next = withRoute(next, 'plan', { model: 'opus', level: 'max' })
     expect(next.tasks.plan).toEqual({ model: 'opus', level: 'max' })
@@ -90,7 +93,59 @@ describe('routing', () => {
     expect(modelChoice(undefined)).toBe('inherit')
     expect(modelChoice('opus')).toBe('opus')
     expect(modelChoice('claude-sonnet-5-5')).toBe('custom')
-    expect(describeConfig({ tasks: {} })).toMatch(/nothing routed/)
+    expect(describeConfig({ tasks: {}, models: {} })).toMatch(/nothing routed/)
     expect(describeConfig(config)).toMatch(/plan\s+opus/)
+  })
+})
+
+describe('model catalog', () => {
+  const base = normalizeConfig({ tasks: {}, models: { glm: 'glm-5p3-flash', 'bad name': 'x', haiku: 'not-allowed', k2: '  kimi-k2-latest ' } })
+
+  test('normalizeConfig keeps well-formed catalog entries and trims ids', async () => {
+    expect(base.models).toEqual({ glm: 'glm-5p3-flash', k2: 'kimi-k2-latest' })
+  })
+
+  test('catalog names resolve to ids before alias resolution', async () => {
+    const env = () => undefined
+    expect(resolveModel('glm', env, base.models)).toBe('glm-5p3-flash')
+    expect(resolveModel('haiku', env, base.models)).toBe('claude-haiku-4-5')
+    expect(resolveModel('accounts/fireworks/models/x', env, base.models)).toBe('accounts/fireworks/models/x')
+  })
+
+  test('the picker lists aliases, then catalog names; a routed catalog name is not custom', async () => {
+    expect(modelNames(base)).toEqual(['inherit', 'haiku', 'sonnet', 'opus', 'fable', 'glm', 'k2'])
+    expect(modelChoice('glm', base)).toBe('glm')
+    expect(modelChoice('glm-5p3-flash', base)).toBe('custom')
+  })
+
+  test('withModel adds and removes; withRoute keeps the catalog', async () => {
+    const added = withModel(base, 'ds', 'deepseek-flash-latest')
+    expect(added.models.ds).toBe('deepseek-flash-latest')
+    const routed = withRoute(added, 'explore', { model: 'ds' })
+    expect(routed.models.ds).toBe('deepseek-flash-latest')
+    expect(withModel(routed, 'ds', undefined).models.ds).toBeUndefined()
+  })
+
+  test('isModelName rejects aliases, custom, spaces and long names', async () => {
+    expect(isModelName('glm')).toBe(true)
+    expect(isModelName('haiku')).toBe(false)
+    expect(isModelName('custom')).toBe(false)
+    expect(isModelName('two words')).toBe(false)
+    expect(isModelName('x'.repeat(30))).toBe(false)
+  })
+
+  test('parseCommand understands model add, model rm and models', async () => {
+    expect(parseCommand('model add glm glm-5p3-flash')).toEqual({ kind: 'model-add', name: 'glm', id: 'glm-5p3-flash' })
+    expect(parseCommand('model rm glm')).toEqual({ kind: 'model-rm', name: 'glm' })
+    expect(parseCommand('models')).toEqual({ kind: 'models' })
+    expect(parseCommand('model add haiku x').kind).toBe('error')
+    expect(parseCommand('model add glm').kind).toBe('error')
+  })
+
+  test('describeConfig lists the catalog after the routes', async () => {
+    const text = describeConfig(withRoute(base, 'explore', { model: 'glm' }))
+    expect(text).toContain('explore            glm')
+    expect(text).toContain('models:')
+    expect(text).toContain('glm              glm-5p3-flash')
   })
 })
