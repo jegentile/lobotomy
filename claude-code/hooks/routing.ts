@@ -367,6 +367,11 @@ export function parsePresets(text: string): Array<{ name: string; id: string }> 
   return out
 }
 
+/** True when the gateway lists `id` exactly or as the last segment of a path id (`glm-5p3-flash` ≈ `accounts/fireworks/models/glm-5p3-flash`). */
+export function listed(id: string, discovered: readonly string[]): boolean {
+  return discovered.some(d => d === id || d.endsWith('/' + id))
+}
+
 /** Ids the gateway serves that the catalog does not name and that count as Claude's own tiers nowhere. */
 export function uncatalogued(discovered: readonly string[], config: LobotomyConfig): string[] {
   const known = new Set(Object.values(config.models ?? {}))

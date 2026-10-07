@@ -133,7 +133,7 @@ provider's id when the request goes out.
    seconds at most, silent on failure) and:
 
    - **seeds presets** the first time: the `presets` config field, by
-     default `glm=glm-5p3-flash; ds=deepseek-flash-latest; mm=minimax-m3`,
+     default `glm=glm-5p3-flash; ds=deepseek-v4p1-flash; mm=minimax-m3`,
      each entry added only when the gateway actually lists that id, so an
      OpenRouter session never inherits Fireworks names;
    - **offers the rest**: a toast says `lobotomy: 4 new models at
@@ -147,7 +147,9 @@ provider's id when the request goes out.
 
    The pane shows the same list under **New at <host>** with an `add`
    button per model and `a` to add all. Set `discover` to false in `/config`
-   to turn the lookup off.
+   to turn the lookup off. The catalog is one list across gateways, so a
+   name added while on Fireworks is still offered in an OpenRouter session;
+   presets are seeded once per gateway host.
 
 3. Or name models by hand, then route tasks to the names:
 

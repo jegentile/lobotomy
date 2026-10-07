@@ -23,6 +23,7 @@ import {
   isLevel,
   isModelName,
   isRouted,
+  listed,
   modelChoice,
   modelNames,
   normalizeConfig,
@@ -163,11 +164,11 @@ export const register: Register = (on, options) => {
       const found = await discoverModels($)
       await update($, discovered, () => found)
       if (found.ids.length > 0) {
-        // Presets: seeded once, each only when the gateway actually lists its id.
-        if (!(await $.store.get(SEEDED_KEY))) {
-          const listed = new Set(found.ids)
-          await save($, c => presets.filter(p => listed.has(p.id) && !c.models?.[p.name]).reduce((acc, p) => withModel(acc, p.name, p.id), c))
-          await $.store.set(SEEDED_KEY, true)
+        // Presets: seeded once per gateway, each only when that gateway lists its id.
+        const seededKey = `${SEEDED_KEY}:${found.host}`
+        if (!(await $.store.get(seededKey))) {
+          await save($, c => presets.filter(p => listed(p.id, found.ids) && !c.models?.[p.name]).reduce((acc, p) => withModel(acc, p.name, p.id), c))
+          await $.store.set(seededKey, true)
         }
         const seen = new Set(((await $.store.get(SEEN_KEY)) as string[] | undefined) ?? [])
         const fresh = uncatalogued(found.ids, await read($, config)).filter(id => !seen.has(id))

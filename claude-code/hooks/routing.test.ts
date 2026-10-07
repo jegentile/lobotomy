@@ -6,6 +6,7 @@ import {
   gatewayHeaders,
   isModelName,
   parseModelList,
+  listed,
   parsePresets,
   shortName,
   uncatalogued,
@@ -181,6 +182,13 @@ describe('discovery', () => {
     expect(shortName('qwen3:8b')).toBe('qwen3-8b')
     expect(shortName('haiku')).toBe('m-haiku')
     expect(shortName('x/glm', ['glm'])).toBe('glm-2')
+  })
+
+  test('listed matches exact ids and path suffixes', async () => {
+    const ids = ['accounts/fireworks/models/glm-5p3-flash', 'glm-mini']
+    expect(listed('glm-5p3-flash', ids)).toBe(true)
+    expect(listed('glm-mini', ids)).toBe(true)
+    expect(listed('flash', ids)).toBe(false)
   })
 
   test('parsePresets and uncatalogued', async () => {

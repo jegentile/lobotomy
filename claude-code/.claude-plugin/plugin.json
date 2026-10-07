@@ -24,7 +24,7 @@
       "type": "string",
       "title": "Catalog presets",
       "description": "name=id entries seeded into the catalog on first use, each only when the gateway lists that id: name=id; name=id",
-      "default": "glm=glm-5p3-flash; ds=deepseek-flash-latest; mm=minimax-m3"
+      "default": "glm=glm-5p3-flash; ds=deepseek-v4p1-flash; mm=minimax-m3"
     }
   }
 }
