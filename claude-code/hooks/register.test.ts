@@ -21,7 +21,7 @@ const EMPTY: Stored = { config: { tasks: {}, models: {} } }
  * The engine beneath the plugin: what `session.start` and the hooks call.
  * Returns the store's last written config, for the assertions.
  */
-function world(on: On, stored: Stored) {
+function world(on: On, stored: Stored, env: Record<string, string> = { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-8' }) {
   const store = new Map(Object.entries(stored))
   const written: { config?: unknown } = {}
   on('store.get', (_$, e) => ({ value: store.get(e.key) }))
@@ -36,7 +36,7 @@ function world(on: On, stored: Stored) {
   })
   on('store.keys', () => ({ value: [...store.keys()] }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('env.get', (_$, e) => ({ value: e.name === 'ANTHROPIC_DEFAULT_OPUS_MODEL' ? 'claude-opus-4-8' : undefined }))
+  on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.model', () => ({ value: 'claude-fable-5-1' }))
   on('ui.status', () => ({ value: undefined }))
@@ -153,4 +153,37 @@ test('the pane picks a model per task on every surface with pickers', async ($, 
     expect(written.config).toEqual({ tasks: {}, models: {} })
     await ui.unmount()
   }
+})
+
+test('session start discovers gateway models, seeds listed presets once, offers the rest via /lobotomy setup', async ($, on) => {
+  const written = world(on, EMPTY, { ANTHROPIC_BASE_URL: 'https://api.fireworks.ai/inference', ANTHROPIC_CUSTOM_HEADERS: 'X-Fireworks-Api-Key: fw_test' })
+  const toasts: string[] = []
+  const fetched: Array<{ url: string; headers?: Record<string, string> }> = []
+  on('http.fetch', (_$, e) => {
+    fetched.push({ url: e.url, headers: e.init?.headers })
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: [{ id: 'glm-5p3-flash' }, { id: 'deepseek-flash-latest' }, { id: 'kimi-k2-latest' }, { id: 'claude-opus-5-5' }] }) } }
+  })
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+
+  await $.session.start(SESSION)
+  expect(fetched[0]?.url).toBe('https://api.fireworks.ai/inference/v1/models')
+  expect(fetched[0]?.headers?.['x-fireworks-api-key']).toBe('fw_test')
+  // presets glm and ds are listed and get seeded; mm (minimax-m3) is not listed and does not
+  expect((written.config as any).models).toEqual({ glm: 'glm-5p3-flash', ds: 'deepseek-flash-latest' })
+  expect(toasts.some(t => t.includes('1 new model at api.fireworks.ai'))).toBe(true)
+
+  const listed = await $.command.run({ command: 'lobotomy', args: 'setup', ...COMPOSER })
+  expect(listed.text).toContain('kimi-k2-latest')
+  expect(listed.text).not.toContain('claude-opus-5-5')
+  const added = await $.command.run({ command: 'lobotomy', args: 'setup all', ...COMPOSER })
+  expect(added.text).toContain('added 1')
+  expect((written.config as any).models['kimi-k2-latest']).toBe('kimi-k2-latest')
+
+  // a second session: nothing new, no toast
+  toasts.length = 0
+  await $.session.start(SESSION)
+  expect(toasts.length).toBe(0)
 })

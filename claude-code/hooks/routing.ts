@@ -231,6 +231,7 @@ export type Command =
   | { kind: 'models' }
   | { kind: 'model-add'; name: string; id: string }
   | { kind: 'model-rm'; name: string }
+  | { kind: 'setup'; ids: string[] | 'all' | null }
   | { kind: 'error'; message: string }
 
 export function parseCommand(args: string): Command {
@@ -249,6 +250,12 @@ export function parseCommand(args: string): Command {
       return key ? { kind: 'clear', key } : { kind: 'error', message: 'clear needs a task: /lobotomy clear plan' }
     case 'models':
       return { kind: 'models' }
+    case 'setup': {
+      const rest = words.slice(1)
+      if (rest.length === 0) return { kind: 'setup', ids: null }
+      if (rest.length === 1 && rest[0] === 'all') return { kind: 'setup', ids: 'all' }
+      return { kind: 'setup', ids: rest }
+    }
     case 'model': {
       // model add <name> <id> | model rm <name>
       const [, action, name, id] = words
@@ -282,6 +289,7 @@ export const HELP = [
   '/lobotomy set <task> <model> [effort]',
   '/lobotomy clear <task>    route the task to the session model again',
   '/lobotomy reset           clear every route',
+  '/lobotomy setup [all|<id>…]   add models the gateway serves to the catalog',
   '/lobotomy models          list the model catalog',
   '/lobotomy model add <name> <id>   name a model from any provider (glm = glm-5p3-flash)',
   '/lobotomy model rm <name>',
@@ -293,3 +301,74 @@ export const HELP = [
   'providers: point ANTHROPIC_BASE_URL at a gateway that serves them (Fireworks, OpenRouter, LiteLLM), then add names here',
   'effort: ' + LEVEL_CHOICES.join(', '),
 ].join('\n')
+
+// ------------------------------------------------------------ discovery
+
+/** The gateway a session talks to, or undefined for Anthropic itself (nothing to discover there). */
+export function gatewayFrom(baseUrl: string | undefined): { origin: string; host: string } | undefined {
+  const raw = (baseUrl ?? '').trim()
+  if (!raw) return undefined
+  try {
+    const url = new URL(raw)
+    if (/(^|\.)anthropic\.com$/i.test(url.hostname)) return undefined
+    const path = url.pathname.replace(/\/+$/, '')
+    return { origin: `${url.origin}${path}`, host: url.host }
+  } catch {
+    return undefined
+  }
+}
+
+/** The headers a gateway request carries, from the same variables the session itself uses. */
+export function gatewayHeaders(env: (name: string) => string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const token = env('ANTHROPIC_AUTH_TOKEN')?.trim()
+  if (token) headers.authorization = `Bearer ${token}`
+  const key = env('ANTHROPIC_API_KEY')?.trim()
+  if (key) headers['x-api-key'] = key
+  for (const line of (env('ANTHROPIC_CUSTOM_HEADERS') ?? '').split(/\r?\n/)) {
+    const i = line.indexOf(':')
+    if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim()
+  }
+  return headers
+}
+
+/** Model ids from a `/v1/models` body: `{ data: [{ id }] }` (Anthropic, OpenAI-style, LiteLLM, Ollama) or `{ models: [{ name }] }` (Ollama's own). */
+export function parseModelList(text: string): string[] {
+  try {
+    const body = JSON.parse(text) as { data?: unknown; models?: unknown }
+    const rows = (Array.isArray(body.data) ? body.data : Array.isArray(body.models) ? body.models : []) as Array<Record<string, unknown>>
+    const ids = rows.map(r => (typeof r.id === 'string' ? r.id : typeof r.name === 'string' ? r.name : '')).filter(Boolean)
+    return [...new Set(ids)].sort()
+  } catch {
+    return []
+  }
+}
+
+/** A catalog name for a model id: the last path segment, cut to what `isModelName` takes. */
+export function shortName(id: string, taken: Iterable<string> = []): string {
+  const used = new Set(taken)
+  let base = (id.split('/').pop() ?? id).replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'model'
+  if (!isModelName(base)) base = `m-${base}`.slice(0, 24)
+  let name = base
+  for (let n = 2; used.has(name) || !isModelName(name); n += 1) name = `${base.slice(0, 21)}-${n}`
+  return name
+}
+
+/** `name=id; name=id` → entries, dropping malformed ones. */
+export function parsePresets(text: string): Array<{ name: string; id: string }> {
+  const out: Array<{ name: string; id: string }> = []
+  for (const raw of text.split(/[;\n]/)) {
+    const i = raw.indexOf('=')
+    if (i < 0) continue
+    const name = raw.slice(0, i).trim()
+    const id = raw.slice(i + 1).trim()
+    if (name && id && isModelName(name)) out.push({ name, id })
+  }
+  return out
+}
+
+/** Ids the gateway serves that the catalog does not name and that count as Claude's own tiers nowhere. */
+export function uncatalogued(discovered: readonly string[], config: LobotomyConfig): string[] {
+  const known = new Set(Object.values(config.models ?? {}))
+  return discovered.filter(id => !known.has(id) && !/^claude-/i.test(id))
+}

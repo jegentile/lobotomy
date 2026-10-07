@@ -95,7 +95,9 @@ There is also an `edit` task for agents that apply edits with a separate model
 /lobotomy clear plan
 /lobotomy status
 /lobotomy reset
-/lobotomy model add glm glm-5p3-flash # Claude Code: name a model from another provider
+/lobotomy setup                       # Claude Code: models the gateway serves but the catalog lacks
+/lobotomy setup all                   # add them all
+/lobotomy model add glm glm-5p3-flash # or name one by hand
 /lobotomy set explore glm             # ...then route to it by name
 /lobotomy models                      # the catalog
 /lobotomy model rm glm
@@ -126,11 +128,31 @@ provider's id when the request goes out.
    `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; Ollama serves the same
    endpoint locally at `http://localhost:11434`.
 
-2. Name the models, then route tasks to the names:
+2. Let Lobotomy find the models. At session start it asks the gateway what
+   it serves (`GET /v1/models` with the session's own credentials, two
+   seconds at most, silent on failure) and:
+
+   - **seeds presets** the first time: the `presets` config field, by
+     default `glm=glm-5p3-flash; ds=deepseek-flash-latest; mm=minimax-m3`,
+     each entry added only when the gateway actually lists that id, so an
+     OpenRouter session never inherits Fireworks names;
+   - **offers the rest**: a toast says `lobotomy: 4 new models at
+     api.fireworks.ai; /lobotomy setup to add them`, once per new id.
+
+   ```
+   /lobotomy setup              # list what the gateway serves that the catalog does not name
+   /lobotomy setup all          # add them all, under generated short names
+   /lobotomy setup kimi-k2-latest minimax-m3     # add some
+   ```
+
+   The pane shows the same list under **New at <host>** with an `add`
+   button per model and `a` to add all. Set `discover` to false in `/config`
+   to turn the lookup off.
+
+3. Or name models by hand, then route tasks to the names:
 
    ```
    /lobotomy model add glm glm-5p3-flash
-   /lobotomy model add ds  deepseek-flash-latest
    /lobotomy set explore glm
    /lobotomy set subagent glm
    /lobotomy set quick ds

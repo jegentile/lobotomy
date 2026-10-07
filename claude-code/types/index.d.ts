@@ -29,6 +29,8 @@ declare module 'claude-code' {
       customFor: string | null
       /** What the last routed request ran on, for the pane's status line. */
       lastRoute: string
+      /** Models the session's gateway listed at start, for the pane's setup section. */
+      discovered: { host: string; ids: string[] }
     }
   }
 }

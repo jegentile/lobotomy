@@ -2,7 +2,13 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   describeConfig,
+  gatewayFrom,
+  gatewayHeaders,
   isModelName,
+  parseModelList,
+  parsePresets,
+  shortName,
+  uncatalogued,
   modelChoice,
   modelNames,
   withModel,
@@ -147,5 +153,48 @@ describe('model catalog', () => {
     expect(text).toContain('explore            glm')
     expect(text).toContain('models:')
     expect(text).toContain('glm              glm-5p3-flash')
+  })
+})
+
+describe('discovery', () => {
+  test('gatewayFrom ignores Anthropic and keeps a path prefix', async () => {
+    expect(gatewayFrom(undefined)).toBeUndefined()
+    expect(gatewayFrom('https://api.anthropic.com')).toBeUndefined()
+    expect(gatewayFrom('https://api.fireworks.ai/inference/')).toEqual({ origin: 'https://api.fireworks.ai/inference', host: 'api.fireworks.ai' })
+    expect(gatewayFrom('http://localhost:11434')?.host).toBe('localhost:11434')
+    expect(gatewayFrom('not a url')).toBeUndefined()
+  })
+
+  test('gatewayHeaders carries the session auth and custom headers', async () => {
+    const env = (n: string) => ({ ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_CUSTOM_HEADERS: 'X-Fireworks-Api-Key: fw_1\nX-Other: v' } as Record<string, string>)[n]
+    expect(gatewayHeaders(env)).toEqual({ authorization: 'Bearer tok', 'x-fireworks-api-key': 'fw_1', 'x-other': 'v' })
+  })
+
+  test('parseModelList reads OpenAI-style and Ollama-style bodies', async () => {
+    expect(parseModelList('{"data":[{"id":"glm-5p3-flash"},{"id":"claude-opus-5-5"},{"id":"glm-5p3-flash"}]}')).toEqual(['claude-opus-5-5', 'glm-5p3-flash'])
+    expect(parseModelList('{"models":[{"name":"qwen3:8b"}]}')).toEqual(['qwen3:8b'])
+    expect(parseModelList('nope')).toEqual([])
+  })
+
+  test('shortName takes the last segment, sanitizes, and avoids collisions and aliases', async () => {
+    expect(shortName('accounts/fireworks/models/glm-5p3-flash')).toBe('glm-5p3-flash')
+    expect(shortName('qwen3:8b')).toBe('qwen3-8b')
+    expect(shortName('haiku')).toBe('m-haiku')
+    expect(shortName('x/glm', ['glm'])).toBe('glm-2')
+  })
+
+  test('parsePresets and uncatalogued', async () => {
+    expect(parsePresets('glm=glm-5p3-flash; haiku=x; ds = deepseek-flash-latest ;junk')).toEqual([
+      { name: 'glm', id: 'glm-5p3-flash' },
+      { name: 'ds', id: 'deepseek-flash-latest' },
+    ])
+    const cfg = normalizeConfig({ tasks: {}, models: { glm: 'glm-5p3-flash' } })
+    expect(uncatalogued(['claude-opus-5-5', 'glm-5p3-flash', 'minimax-m3'], cfg)).toEqual(['minimax-m3'])
+  })
+
+  test('parseCommand understands setup', async () => {
+    expect(parseCommand('setup')).toEqual({ kind: 'setup', ids: null })
+    expect(parseCommand('setup all')).toEqual({ kind: 'setup', ids: 'all' })
+    expect(parseCommand('setup a b')).toEqual({ kind: 'setup', ids: ['a', 'b'] })
   })
 })

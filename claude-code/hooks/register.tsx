@@ -18,6 +18,8 @@ import {
   LEVEL_CHOICES,
   TASKS,
   describeConfig,
+  gatewayFrom,
+  gatewayHeaders,
   isLevel,
   isModelName,
   isRouted,
@@ -25,11 +27,15 @@ import {
   modelNames,
   normalizeConfig,
   parseCommand,
+  parseModelList,
+  parsePresets,
   resolveMain,
   resolveModel,
   resolveSpawn,
   routeFor,
+  shortName,
   taskForSkill,
+  uncatalogued,
   withModel,
   withRoute,
 } from './routing'
@@ -43,6 +49,9 @@ const mode = atom({ plugin: 'lobotomy', key: 'mode' } as const, 'default')
 const agentTypes = atom({ plugin: 'lobotomy', key: 'agentTypes' } as const, [])
 const customFor = atom({ plugin: 'lobotomy', key: 'customFor' } as const, null)
 const lastRoute = atom({ plugin: 'lobotomy', key: 'lastRoute' } as const, '')
+const discovered = atom({ plugin: 'lobotomy', key: 'discovered' } as const, { host: '', ids: [] })
+const SEEN_KEY = 'seen-models'
+const SEEDED_KEY = 'seeded-presets'
 
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -99,7 +108,43 @@ function keepFrom(messages: readonly SessionMessage[]): number {
   return messages.length
 }
 
-export const register: Register = on => {
+/** Lists what the session's gateway serves; empty when there is no gateway or it does not answer. */
+async function discoverModels($: EngineInterface): Promise<{ host: string; ids: string[] }> {
+  const gateway = gatewayFrom(await $.env.get('ANTHROPIC_BASE_URL'))
+  if (!gateway) return { host: '', ids: [] }
+  const vars: Record<string, string | undefined> = {
+    ANTHROPIC_AUTH_TOKEN: await $.env.get('ANTHROPIC_AUTH_TOKEN'),
+    ANTHROPIC_API_KEY: await $.env.get('ANTHROPIC_API_KEY'),
+    ANTHROPIC_CUSTOM_HEADERS: await $.env.get('ANTHROPIC_CUSTOM_HEADERS'),
+  }
+  try {
+    const r = await $.http.fetch(`${gateway.origin}/v1/models`, { headers: { accept: 'application/json', ...gatewayHeaders(name => vars[name]) } })
+    return { host: gateway.host, ids: r.ok ? parseModelList(r.text) : [] }
+  } catch {
+    return { host: gateway.host, ids: [] }
+  }
+}
+
+/** Adds `ids` to the catalog under generated names; returns the names given. */
+async function adopt($: EngineInterface, ids: readonly string[]): Promise<Array<[string, string]>> {
+  const given: Array<[string, string]> = []
+  await save($, c => {
+    let next = c
+    for (const id of ids) {
+      if (Object.values(next.models ?? {}).includes(id)) continue
+      const name = shortName(id, Object.keys(next.models ?? {}))
+      next = withModel(next, name, id)
+      given.push([name, id])
+    }
+    return next
+  })
+  return given
+}
+
+export const register: Register = (on, options) => {
+  const wantDiscovery = options.discover !== false
+  const presets = parsePresets(String(options.presets ?? ''))
+
   on('session.start', async ($, e, next) => {
     const stored = normalizeConfig(await $.store.get(STORE_KEY))
     await update($, config, () => stored)
@@ -114,6 +159,22 @@ export const register: Register = on => {
       description: 'Ask one question on the "quick" route (a cheap model)',
       argumentHint: '<question>',
     })
+    if (wantDiscovery) {
+      const found = await discoverModels($)
+      await update($, discovered, () => found)
+      if (found.ids.length > 0) {
+        // Presets: seeded once, each only when the gateway actually lists its id.
+        if (!(await $.store.get(SEEDED_KEY))) {
+          const listed = new Set(found.ids)
+          await save($, c => presets.filter(p => listed.has(p.id) && !c.models?.[p.name]).reduce((acc, p) => withModel(acc, p.name, p.id), c))
+          await $.store.set(SEEDED_KEY, true)
+        }
+        const seen = new Set(((await $.store.get(SEEN_KEY)) as string[] | undefined) ?? [])
+        const fresh = uncatalogued(found.ids, await read($, config)).filter(id => !seen.has(id))
+        if (fresh.length > 0) $.ui.toast(`lobotomy: ${fresh.length} new model${fresh.length === 1 ? '' : 's'} at ${found.host}; /lobotomy setup to add them`)
+        await $.store.set(SEEN_KEY, found.ids)
+      }
+    }
     return next(e)
   })
 
@@ -155,6 +216,24 @@ export const register: Register = on => {
       case 'model-add': {
         await save($, c => withModel(c, command.name, command.id))
         return { text: `model ${command.name} = ${command.id}; now /lobotomy set <task> ${command.name}` }
+      }
+      case 'setup': {
+        const found = await read($, discovered)
+        if (!found.host) return { text: 'no gateway: ANTHROPIC_BASE_URL points at Anthropic (or is unset), so there is nothing to discover. /lobotomy model add <name> <id> still works.' }
+        const cfg = await read($, config)
+        const candidates = uncatalogued(found.ids, cfg)
+        if (command.ids === null) {
+          if (candidates.length === 0) return { text: `${found.host} lists ${found.ids.length} models and the catalog already names every non-Claude one.` }
+          const taken = Object.keys(cfg.models ?? {})
+          const lines = candidates.map(id => `  ${shortName(id, taken).padEnd(26)} ${id}`)
+          return { text: [`${found.host} serves ${candidates.length} model${candidates.length === 1 ? '' : 's'} not in the catalog:`, ...lines, '', '/lobotomy setup all   adds them under those names', '/lobotomy setup <id> [<id>…]   adds some'].join('\n') }
+        }
+        const wanted = command.ids === 'all' ? candidates : command.ids.filter(id => found.ids.includes(id))
+        const missing = command.ids === 'all' ? [] : command.ids.filter(id => !found.ids.includes(id))
+        const given = await adopt($, wanted)
+        const lines = given.map(([name, id]) => `  ${name.padEnd(26)} ${id}`)
+        if (missing.length) lines.push(`  (not served by ${found.host}: ${missing.join(', ')})`)
+        return { text: given.length ? [`added ${given.length} to the catalog:`, ...lines, '', 'now /lobotomy set <task> <name>, or open /lobotomy'].join('\n') : lines.join('\n') || 'nothing to add.' }
       }
       case 'model-rm': {
         const had = (await read($, config)).models[command.name] !== undefined
@@ -291,6 +370,8 @@ export const register: Register = on => {
     const types = await read($, agentTypes)
     const editing = await read($, customFor)
     const route = await read($, lastRoute)
+    const found = await read($, discovered)
+    const fresh = uncatalogued(found.ids, cfg)
     const session = await $.session.model()
     const wide = (e.props.bodyColumns ?? 80) >= 70
 
@@ -417,6 +498,28 @@ export const register: Register = on => {
         {wide && (
           <Box paddingLeft={2}>
             <Text dimColor>names for models from any provider the session's gateway serves; they appear in every picker above</Text>
+          </Box>
+        )}
+        {fresh.length > 0 && (
+          <Box flexDirection="column">
+            <Text> </Text>
+            <Text color="permission" bold>
+              New at {found.host}
+            </Text>
+            {fresh.slice(0, 12).map(id => (
+              <Box key={`new-${id}`} flexDirection="row" gap={1}>
+                <Text dimColor>{id}</Text>
+                <Button key={`add:${id}`} onPress={() => void adopt($, [id])}>
+                  add
+                </Button>
+              </Box>
+            ))}
+            <Box flexDirection="row" gap={1}>
+              {fresh.length > 12 && <Text dimColor>and {fresh.length - 12} more</Text>}
+              <Button key="add-all" hotkey="a" onPress={() => void adopt($, fresh)}>
+                Add all {fresh.length}
+              </Button>
+            </Box>
           </Box>
         )}
         <Text> </Text>

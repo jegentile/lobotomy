@@ -2,7 +2,29 @@
   "name": "lobotomy",
   "version": "0.1.0",
   "description": "One brain per task: route the main loop, plan mode, subagents, review, commits, compaction and quick questions to the model you choose. /lobotomy opens the config pane.",
-  "author": { "name": "James Gentile" },
-  "keywords": ["model", "routing", "subagents", "effort", "tui"],
-  "types": "./types/index.d.ts"
+  "author": {
+    "name": "James Gentile"
+  },
+  "keywords": [
+    "model",
+    "routing",
+    "subagents",
+    "effort",
+    "tui"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "discover": {
+      "type": "boolean",
+      "title": "Discover gateway models",
+      "description": "At session start, list the models the session's gateway serves (GET /v1/models at ANTHROPIC_BASE_URL) and offer new ones through /lobotomy setup",
+      "default": true
+    },
+    "presets": {
+      "type": "string",
+      "title": "Catalog presets",
+      "description": "name=id entries seeded into the catalog on first use, each only when the gateway lists that id: name=id; name=id",
+      "default": "glm=glm-5p3-flash; ds=deepseek-flash-latest; mm=minimax-m3"
+    }
+  }
 }
