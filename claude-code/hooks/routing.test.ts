@@ -211,6 +211,11 @@ describe('discovery', () => {
     expect(uncatalogued(['claude-opus-5-5', 'glm-5p3-flash', 'minimax-m3'], cfg)).toEqual(['minimax-m3'])
   })
 
+  test('uncatalogued treats a bare catalog id as naming its path-prefixed listing', async () => {
+    const c = withModel(EMPTY(), 'glm', 'glm-5p3-flash')
+    expect(uncatalogued(['accounts/fireworks/models/glm-5p3-flash', 'accounts/fireworks/models/glm-5p3', 'claude-opus-5-5'], c)).toEqual(['accounts/fireworks/models/glm-5p3'])
+  })
+
   test('parseCommand understands setup', async () => {
     expect(parseCommand('setup')).toEqual({ kind: 'setup', ids: null })
     expect(parseCommand('setup all')).toEqual({ kind: 'setup', ids: 'all' })

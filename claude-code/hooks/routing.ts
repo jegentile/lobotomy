@@ -616,8 +616,12 @@ export function listed(id: string, discovered: readonly string[]): boolean {
   return discovered.some(d => d === id || d.endsWith('/' + id))
 }
 
-/** Ids the gateway serves that the catalog does not name and that count as Claude's own tiers nowhere. */
+/** True when the catalog already names `id`, exactly or as a bare id the gateway lists under a path (`glm-5p3-flash` names `accounts/fireworks/models/glm-5p3-flash`). */
+export function catalogued(id: string, config: LobotomyConfig): boolean {
+  return Object.values(config.models ?? {}).some(known => listed(known, [id]))
+}
+
+/** Ids the gateway serves that the catalog does not name and that are not Claude models. */
 export function uncatalogued(discovered: readonly string[], config: LobotomyConfig): string[] {
-  const known = new Set(Object.values(config.models ?? {}))
-  return discovered.filter(id => !known.has(id) && !/^claude-/i.test(id))
+  return discovered.filter(id => !catalogued(id, config) && !/^claude-/i.test(id))
 }

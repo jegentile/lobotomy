@@ -18,6 +18,7 @@ import {
   LEVEL_CHOICES,
   PROFILES,
   TASKS,
+  catalogued,
   describeConfig,
   describeProfile,
   describeProfiles,
@@ -151,7 +152,7 @@ async function adopt($: EngineInterface, ids: readonly string[]): Promise<Array<
   await save($, c => {
     let next = c
     for (const id of ids) {
-      if (Object.values(next.models ?? {}).includes(id)) continue
+      if (catalogued(id, next)) continue
       const name = shortName(id, Object.keys(next.models ?? {}))
       next = withModel(next, name, id)
       given.push([name, id])

@@ -161,7 +161,7 @@ test('session start discovers gateway models, seeds listed presets once, offers 
   const fetched: Array<{ url: string; headers?: Record<string, string> }> = []
   on('http.fetch', (_$, e) => {
     fetched.push({ url: e.url, headers: e.init?.headers })
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: [{ id: 'glm-5p3-flash' }, { id: 'deepseek-flash-latest' }, { id: 'kimi-k2-latest' }, { id: 'claude-opus-5-5' }] }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: [{ id: 'accounts/fireworks/models/glm-5p3-flash' }, { id: 'accounts/fireworks/models/deepseek-v4p1-flash' }, { id: 'kimi-k2-latest' }, { id: 'claude-opus-5-5' }] }) } }
   })
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
@@ -172,12 +172,14 @@ test('session start discovers gateway models, seeds listed presets once, offers 
   expect(fetched[0]?.url).toBe('https://api.fireworks.ai/inference/v1/models')
   expect(fetched[0]?.headers?.['x-fireworks-api-key']).toBe('fw_test')
   // presets glm and ds are listed and get seeded; mm (minimax-m3) is not listed and does not
-  expect((written.config as any).models).toEqual({ glm: 'glm-5p3-flash', ds: 'deepseek-flash-latest' })
+  expect((written.config as any).models).toEqual({ glm: 'glm-5p3-flash', ds: 'deepseek-v4p1-flash' })
   expect(toasts.some(t => t.includes('1 new model at api.fireworks.ai'))).toBe(true)
 
   const listed = await $.command.run({ command: 'lobotomy', args: 'setup', ...COMPOSER })
   expect(listed.text).toContain('kimi-k2-latest')
   expect(listed.text).not.toContain('claude-opus-5-5')
+  expect(listed.text).not.toContain('glm-5p3-flash')
+  expect(listed.text).not.toContain('deepseek-v4p1-flash')
   const added = await $.command.run({ command: 'lobotomy', args: 'setup all', ...COMPOSER })
   expect(added.text).toContain('added 1')
   expect((written.config as any).models['kimi-k2-latest']).toBe('kimi-k2-latest')

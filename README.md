@@ -317,7 +317,7 @@ OpenCode 1.18.
 ## Development
 
 ```
-claude plugin validate claude-code && claude plugin test claude-code   # 34 tests
+claude plugin validate claude-code && claude plugin test claude-code   # 35 tests
 cd pi && node --test extensions/lobotomy/routing.test.ts               # 6 tests
 cd cli && npm install && npm test                                      # 11 tests
 ```
