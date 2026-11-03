@@ -1,7 +1,18 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  PROFILES,
+  TASKS,
   describeConfig,
+  describeProfile,
+  describeProfiles,
+  effective,
+  fromProfile,
+  isProfileName,
+  profileNames,
+  profileRoutes,
+  withProfile,
+  withSavedProfile,
   gatewayFrom,
   gatewayHeaders,
   isModelName,
@@ -205,4 +216,66 @@ describe('discovery', () => {
     expect(parseCommand('setup all')).toEqual({ kind: 'setup', ids: 'all' })
     expect(parseCommand('setup a b')).toEqual({ kind: 'setup', ids: ['a', 'b'] })
   })
+
 })
+
+describe('profiles', () => {
+  test('built-in profiles name only real tasks, aliases and effort levels', async () => {
+    const tasks = new Set(TASKS.map(t => t.id))
+    for (const id of ['research', 'code', 'doc-review', 'summarize', 'respond']) expect(PROFILES.some(p => p.id === id)).toBe(true)
+    for (const profile of PROFILES) {
+      expect(isProfileName(profile.id)).toBe(true)
+      for (const [key, route] of Object.entries(profile.routes)) {
+        expect(tasks.has(key)).toBe(true)
+        expect(['haiku', 'sonnet', 'opus', 'fable']).toContain(route.model)
+        if (route.level !== undefined) expect(['low', 'medium', 'high', 'xhigh', 'max']).toContain(route.level)
+      }
+    }
+  })
+
+  test('an active profile wins for the tasks it names; the rest keep their own route', async () => {
+    const own = normalizeConfig({ tasks: { main: { model: 'opus' }, helper: { model: 'sonnet' } }, models: {} })
+    const on = withProfile(own, 'respond')
+    expect(effective(on).tasks.main).toEqual({ model: 'haiku' })
+    expect(effective(on).tasks.helper).toEqual({ model: 'sonnet' })
+    expect(fromProfile(on).has('main')).toBe(true)
+    expect(fromProfile(on).has('helper')).toBe(false)
+    expect(resolveMain(effective(on), {})?.route.model).toBe('haiku')
+    expect(resolveSpawn(effective(withProfile(own, 'research')), { subagentType: 'Explore' })?.route.model).toBe('haiku')
+    expect(effective(withProfile(on, undefined)).tasks.main).toEqual({ model: 'opus' })
+    expect(describeConfig(on)).toMatch(/profile: respond/)
+    expect(describeConfig(on)).toMatch(/main\s+haiku\s+← respond/)
+    expect(describeConfig(on)).toMatch(/helper\s+sonnet\n|helper\s+sonnet$/)
+  })
+
+  test('saved profiles shadow built-ins, survive normalizeConfig, and removing the active one turns it off', async () => {
+    let c = withSavedProfile(EMPTY(), 'mine', { main: { model: 'glm' } })
+    c = withSavedProfile(c, 'code', { main: { model: 'opus', level: 'max' } })
+    c = withProfile(c, 'mine')
+    const round = normalizeConfig(JSON.parse(JSON.stringify(c)))
+    expect(round.profile).toBe('mine')
+    expect(profileRoutes(round, 'code')).toEqual({ main: { model: 'opus', level: 'max' } })
+    expect(profileNames(round).find(p => p.id === 'code')?.source).toBe('saved over built-in')
+    expect(profileNames(round).at(-1)?.id).toBe('mine')
+    expect(withSavedProfile(round, 'mine', undefined).profile).toBeUndefined()
+    expect(profileRoutes(withSavedProfile(round, 'code', undefined), 'code')?.main?.model).toBe('sonnet')
+    expect(normalizeConfig({ tasks: {}, profile: 'nope' }).profile).toBeUndefined()
+    expect(describeProfiles(round)).toMatch(/● mine/)
+    expect(describeProfile(round, 'research')).toMatch(/explore\s+haiku/)
+  })
+
+  test('parseCommand understands profile forms', async () => {
+    expect(parseCommand('profiles')).toEqual({ kind: 'profiles' })
+    expect(parseCommand('profile')).toEqual({ kind: 'profiles' })
+    expect(parseCommand('profile research')).toEqual({ kind: 'profile-use', name: 'research' })
+    expect(parseCommand('profile off')).toEqual({ kind: 'profile-use', name: undefined })
+    expect(parseCommand('profile show code')).toEqual({ kind: 'profile-show', name: 'code' })
+    expect(parseCommand('profile save mine')).toEqual({ kind: 'profile-save', name: 'mine' })
+    expect(parseCommand('profile save off').kind).toBe('error')
+    expect(parseCommand('profile rm mine')).toEqual({ kind: 'profile-rm', name: 'mine' })
+  })
+})
+
+function EMPTY() {
+  return normalizeConfig({ tasks: {}, models: {} })
+}

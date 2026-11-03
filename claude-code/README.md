@@ -9,7 +9,9 @@ claude plugin marketplace add /path/to/lobotomy       # then: claude plugin inst
 ```
 
 In a session: `/lobotomy` opens the pane, `/lobotomy set plan opus high`
-routes one task, `/quick <question>` asks on the quick route. Models from
+routes one task, `/lobotomy profile code` switches on a whole set of routes
+(`/lobotomy profiles` lists research, code, doc-review, summarize, respond,
+debug, frugal and max), `/quick <question>` asks on the quick route. Models from
 other providers go through a gateway the session points at (Fireworks,
 OpenRouter, LiteLLM, Ollama). At session start the plugin lists what the
 gateway serves, seeds the `presets` from `/config` for ids it finds, and

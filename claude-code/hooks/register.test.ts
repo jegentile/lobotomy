@@ -187,3 +187,58 @@ test('session start discovers gateway models, seeds listed presets once, offers 
   await $.session.start(SESSION)
   expect(toasts.length).toBe(0)
 })
+
+test('/lobotomy profile switches every routed task at once and off restores your own', async ($, on) => {
+  const written = world(on, { config: { tasks: { main: { model: 'opus' } }, models: {} } })
+  const models: string[] = []
+  const spawned: (string | undefined)[] = []
+  on('turn.step', async function* (_$, e) {
+    models.push(e.model)
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
+  on('agent.spawn', (_$, e) => {
+    spawned.push(e.model)
+    return { model: e.model ?? e.parentModel, agentId: 'a1' }
+  })
+  await $.session.start(SESSION)
+  const run = (args: string) => $.command.run({ command: 'lobotomy', args, ...COMPOSER })
+  const step = () => drain($.turn.step({ turnId: 't', index: 0, model: 'claude-fable-5-1', messageCount: 1 }))
+  const spawn = () =>
+    $.agent.spawn({
+      tool_use_id: 't1', prompt: 'p', description: 'd', provider: { plugin: 'engine', tier: 'core' as const },
+      parentModel: 'claude-fable-5-1', background: false, fork: false, subagentType: 'Explore',
+    })
+
+  expect((await run('profile respond')).text).toMatch(/profile respond on/)
+  expect((written.config as any).profile).toBe('respond')
+  await step()
+  await spawn()
+  expect((await run('set main sonnet')).text).toMatch(/profile respond routes main/)
+  await step()
+  expect((await run('profile off')).text).toMatch(/respond off/)
+  await step()
+  expect(models).toEqual(['claude-haiku-4-5', 'claude-haiku-4-5', 'claude-sonnet-5-5'])
+  expect(spawned).toEqual(['claude-haiku-4-5'])
+
+  expect((await run('profile nope')).text).toMatch(/no profile "nope"/)
+  expect((await run('profile save mine')).text).toMatch(/saved your 1 route as profile mine/)
+  expect((written.config as any).profiles.mine).toEqual({ main: { model: 'sonnet' } })
+  await run('reset')
+  expect(written.config).toEqual({ tasks: {}, models: {}, profiles: { mine: { main: { model: 'sonnet' } } } })
+})
+
+test('the pane switches profiles and marks the tasks they route', async ($, on) => {
+  const written = world(on, EMPTY)
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({
+    plugin: 'lobotomy', surface: 'terminal', component: 'Pane', requestId: 'lobotomy',
+    props: { title: 'Lobotomy', isFocused: true, bodyColumns: 100, placement: 'dock' } as never,
+  })
+  await ui.select({ key: 'profile', value: 'code' })
+  expect((written.config as any).profile).toBe('code')
+  expect(await ui.find({ type: 'Text', text: /← code: opus @ high/ })).toBeDefined()
+  await ui.select({ key: 'profile', value: 'none' })
+  expect((written.config as any).profile).toBeUndefined()
+  await ui.unmount()
+})
+

@@ -45,6 +45,42 @@ choice alone. Nothing is routed until you say so.
 | `background` | agents run in the background | `run_in_background` spawns | — |
 | `helper` | plugins' own small model calls | `$.model.complete` / `classify` | — |
 
+## Profiles
+
+A profile is a set of routes for one kind of work, switched on as a whole.
+While a profile is on, its routes win for the tasks it names and every other
+task keeps your own route. `/lobotomy profile off` goes back to yours. Claude
+Code only for now.
+
+| Profile | For | Main | Plan | Review | Explore | Subagents | Compact |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `research` | investigating across many files or sources | opus @ high | opus @ high | — | haiku | sonnet @ medium | sonnet @ low |
+| `code` | everyday implementation | sonnet @ high | opus @ high | opus @ high | haiku | sonnet | haiku |
+| `doc-review` | careful reading of a spec, design doc or PR | opus @ high | — | opus @ xhigh | haiku | sonnet | sonnet @ low |
+| `summarize` | condensing long inputs | sonnet @ low | — | — | haiku | haiku | haiku |
+| `respond` | fast replies and short answers | haiku | sonnet | — | haiku | haiku | haiku |
+| `debug` | chasing a bug | opus @ xhigh | opus @ high | opus @ high | sonnet | sonnet @ high | sonnet |
+| `frugal` | lowest cost that still works | haiku | sonnet | sonnet | haiku | haiku | haiku |
+| `max` | best answer, cost no object | fable @ high | fable @ max | opus @ xhigh | sonnet | opus @ high | opus |
+
+`/lobotomy profile show <name>` prints the full set (some also route
+`quick`, `commit`, `background` or `helper`).
+
+```
+/lobotomy profiles                 # list them; ● marks the active one
+/lobotomy profile research         # switch one on
+/lobotomy profile off
+/lobotomy profile show code
+/lobotomy profile save mine        # your own routes, saved as a profile
+/lobotomy profile save code        # saved over a built-in; rm brings the built-in back
+/lobotomy profile rm mine
+```
+
+The pane has a **Profile** picker above the tasks, and marks each task the
+profile routes (`← code: opus @ high`). The status line shows the active profile
+(`🧠 [code] main → claude-sonnet-5-5 @ high`). `/lobotomy reset` turns the
+profile off but keeps the profiles you saved.
+
 Claude Code also takes two kinds of override, more specific than a task:
 
 - `agent:<type>` routes one agent type, e.g. `agent:claude-code-guide`.
@@ -92,6 +128,7 @@ There is also an `edit` task for agents that apply edits with a separate model
 /lobotomy set plan opus high          # Claude Code: alias or full id, then effort
 /lobotomy set quick anthropic/claude-haiku-4-5 low   # pi: provider/model, then thinking
 /lobotomy set agent:Explore haiku     # Claude Code override
+/lobotomy profile code               # Claude Code: switch on a profile (see Profiles)
 /lobotomy clear plan
 /lobotomy status
 /lobotomy reset
@@ -280,7 +317,7 @@ OpenCode 1.18.
 ## Development
 
 ```
-claude plugin validate claude-code && claude plugin test claude-code   # 12 tests
+claude plugin validate claude-code && claude plugin test claude-code   # 34 tests
 cd pi && node --test extensions/lobotomy/routing.test.ts               # 6 tests
 cd cli && npm install && npm test                                      # 11 tests
 ```

@@ -152,6 +152,217 @@ export function withRoute(config: LobotomyConfig, key: string, route: LobotomyRo
   return { ...config, tasks }
 }
 
+// ------------------------------------------------------------- profiles
+
+export type Profile = {
+  id: string
+  /** One line: the kind of work it is for. */
+  hint: string
+  routes: Record<string, LobotomyRoute>
+}
+
+/**
+ * Built-in profiles: a set of routes per kind of work. Tasks a profile does
+ * not name keep the person's own route. Aliases only, so they work on any
+ * gateway that pins the tiers.
+ */
+export const PROFILES: readonly Profile[] = [
+  {
+    id: 'research',
+    hint: 'investigating a question across many files or sources: deep synthesis, cheap searching',
+    routes: {
+      main: { model: 'opus', level: 'high' },
+      plan: { model: 'opus', level: 'high' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'sonnet', level: 'medium' },
+      background: { model: 'haiku' },
+      quick: { model: 'haiku' },
+      compact: { model: 'sonnet', level: 'low' },
+    },
+  },
+  {
+    id: 'code',
+    hint: 'everyday implementation: a strong coder on the loop, the strongest on plans and review',
+    routes: {
+      main: { model: 'sonnet', level: 'high' },
+      plan: { model: 'opus', level: 'high' },
+      review: { model: 'opus', level: 'high' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'sonnet' },
+      background: { model: 'haiku' },
+      commit: { model: 'haiku' },
+      quick: { model: 'haiku' },
+      compact: { model: 'haiku' },
+    },
+  },
+  {
+    id: 'doc-review',
+    hint: 'careful reading of a spec, design doc, contract or PR: slow and thorough',
+    routes: {
+      main: { model: 'opus', level: 'high' },
+      review: { model: 'opus', level: 'xhigh' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'sonnet' },
+      compact: { model: 'sonnet', level: 'low' },
+    },
+  },
+  {
+    id: 'summarize',
+    hint: 'condensing long inputs: a mid model reads, small models fetch',
+    routes: {
+      main: { model: 'sonnet', level: 'low' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'haiku' },
+      background: { model: 'haiku' },
+      compact: { model: 'haiku' },
+    },
+  },
+  {
+    id: 'respond',
+    hint: 'fast conversational replies and short answers: the quickest model everywhere',
+    routes: {
+      main: { model: 'haiku' },
+      plan: { model: 'sonnet' },
+      quick: { model: 'haiku' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'haiku' },
+      compact: { model: 'haiku' },
+    },
+  },
+  {
+    id: 'debug',
+    hint: 'chasing a bug: deep reasoning on the loop, searchers smart enough to notice the odd line',
+    routes: {
+      main: { model: 'opus', level: 'xhigh' },
+      plan: { model: 'opus', level: 'high' },
+      explore: { model: 'sonnet' },
+      subagent: { model: 'sonnet', level: 'high' },
+      review: { model: 'opus', level: 'high' },
+      compact: { model: 'sonnet' },
+    },
+  },
+  {
+    id: 'frugal',
+    hint: 'lowest cost that still gets work done: small models except where a mistake is expensive',
+    routes: {
+      main: { model: 'haiku' },
+      plan: { model: 'sonnet' },
+      review: { model: 'sonnet' },
+      explore: { model: 'haiku' },
+      subagent: { model: 'haiku' },
+      background: { model: 'haiku' },
+      commit: { model: 'haiku' },
+      quick: { model: 'haiku' },
+      compact: { model: 'haiku' },
+      helper: { model: 'haiku' },
+    },
+  },
+  {
+    id: 'max',
+    hint: 'best answer, cost no object: the top tier everywhere it matters',
+    routes: {
+      main: { model: 'fable', level: 'high' },
+      plan: { model: 'fable', level: 'max' },
+      review: { model: 'opus', level: 'xhigh' },
+      explore: { model: 'sonnet' },
+      subagent: { model: 'opus', level: 'high' },
+      commit: { model: 'sonnet' },
+      compact: { model: 'opus' },
+    },
+  },
+]
+
+const PROFILE_WORDS = ['off', 'none', 'save', 'rm', 'remove', 'show', 'list']
+
+/** A usable profile name: like a catalog name, but not a subcommand word. */
+export function isProfileName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,23}$/i.test(name) && !PROFILE_WORDS.includes(name)
+}
+
+/** Every profile's name, built-in first then saved, with where it comes from. */
+export function profileNames(config: LobotomyConfig): Array<{ id: string; hint: string; source: 'built-in' | 'saved' | 'saved over built-in' }> {
+  const saved = config.profiles ?? {}
+  const builtIn = PROFILES.map(p => ({ id: p.id, hint: p.hint, source: saved[p.id] ? ('saved over built-in' as const) : ('built-in' as const) }))
+  const own = Object.keys(saved)
+    .filter(id => !PROFILES.some(p => p.id === id))
+    .sort()
+    .map(id => ({ id, hint: 'saved with /lobotomy profile save', source: 'saved' as const }))
+  return [...builtIn, ...own]
+}
+
+/** A profile's routes: a saved one first, else the built-in of that name. */
+export function profileRoutes(config: LobotomyConfig, name: string): Record<string, LobotomyRoute> | undefined {
+  return config.profiles?.[name] ?? PROFILES.find(p => p.id === name)?.routes
+}
+
+/** The routes in force: the person's own, with the active profile's on top. */
+export function effective(config: LobotomyConfig): LobotomyConfig {
+  const layer = config.profile ? profileRoutes(config, config.profile) : undefined
+  if (!layer) return config
+  return { ...config, tasks: { ...config.tasks, ...layer } }
+}
+
+/** The task keys whose route in force comes from the active profile. */
+export function fromProfile(config: LobotomyConfig): Set<string> {
+  const layer = config.profile ? profileRoutes(config, config.profile) : undefined
+  return new Set(Object.keys(layer ?? {}))
+}
+
+/** A copy of `config` with `name` active, or none when `name` is undefined. */
+export function withProfile(config: LobotomyConfig, name: string | undefined): LobotomyConfig {
+  const next = { ...config }
+  if (name === undefined) delete next.profile
+  else next.profile = name
+  return next
+}
+
+/** A copy of `config` with saved profile `name` set to `routes`, or removed when `routes` is undefined. */
+export function withSavedProfile(config: LobotomyConfig, name: string, routes: Record<string, LobotomyRoute> | undefined): LobotomyConfig {
+  const profiles = { ...(config.profiles ?? {}) }
+  if (routes === undefined) delete profiles[name]
+  else profiles[name] = { ...routes }
+  const next: LobotomyConfig = { ...config, profiles }
+  if (Object.keys(profiles).length === 0) delete next.profiles
+  // Removing the active profile's last definition switches it off.
+  if (next.profile && !profileRoutes(next, next.profile)) delete next.profile
+  return next
+}
+
+function describeRoutes(routes: Record<string, LobotomyRoute>, marked: Set<string> = new Set(), mark = ''): string[] {
+  const order = new Map(TASKS.map((task, i) => [task.id, i] as const))
+  return Object.keys(routes)
+    .sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99) || a.localeCompare(b))
+    .map(key => {
+      const route = routes[key] ?? {}
+      const level = isLevel(route.level) ? ` (effort ${route.level})` : ''
+      return `${key.padEnd(18)} ${route.model ?? 'inherit'}${level}${marked.has(key) ? mark : ''}`
+    })
+}
+
+/** One profile, for `/lobotomy profile show <name>`. */
+export function describeProfile(config: LobotomyConfig, name: string): string {
+  const routes = profileRoutes(config, name)
+  if (!routes) return `no profile "${name}"; /lobotomy profiles lists them`
+  const entry = profileNames(config).find(p => p.id === name)
+  const head = `${name}${config.profile === name ? ' (active)' : ''}: ${entry?.hint ?? ''}`
+  return [head, ...describeRoutes(routes).map(line => `  ${line}`), '', 'tasks it does not name keep your own route.'].join('\n')
+}
+
+/** Every profile, for `/lobotomy profiles`. */
+export function describeProfiles(config: LobotomyConfig): string {
+  const lines = profileNames(config).map(p => {
+    const active = config.profile === p.id ? '●' : ' '
+    const source = p.source === 'built-in' ? '' : ` [${p.source}]`
+    return `${active} ${p.id.padEnd(12)} ${p.hint}${source}`
+  })
+  return [
+    ...lines,
+    '',
+    config.profile ? `active: ${config.profile} · /lobotomy profile off to turn it off` : 'no profile active · /lobotomy profile <name> to switch one on',
+    '/lobotomy profile show <name>   its routes · /lobotomy profile save <name>   save your own routes as one',
+  ].join('\n')
+}
+
 /** A valid catalog name: short, no spaces, not an alias the picker already has. */
 export function isModelName(name: string): boolean {
   return /^[a-z0-9][a-z0-9._-]{0,23}$/i.test(name) && !(MODEL_CHOICES as readonly string[]).includes(name) && name !== CUSTOM
@@ -170,10 +381,9 @@ export function modelNames(config: LobotomyConfig): string[] {
   return [...MODEL_CHOICES, ...Object.keys(config.models ?? {}).sort()]
 }
 
-/** Reads a stored value back into a config, dropping anything malformed. */
-export function normalizeConfig(value: unknown): LobotomyConfig {
+/** Well-formed routes from a stored `{ key: route }` object. */
+function cleanRoutes(raw: unknown): Record<string, LobotomyRoute> {
   const tasks: Record<string, LobotomyRoute> = {}
-  const raw = (value as { tasks?: unknown } | undefined)?.tasks
   if (raw && typeof raw === 'object') {
     for (const [key, route] of Object.entries(raw as Record<string, unknown>)) {
       if (!route || typeof route !== 'object') continue
@@ -184,14 +394,29 @@ export function normalizeConfig(value: unknown): LobotomyConfig {
       if (clean.model !== undefined || clean.level !== undefined) tasks[key] = clean
     }
   }
+  return tasks
+}
+
+/** Reads a stored value back into a config, dropping anything malformed. */
+export function normalizeConfig(value: unknown): LobotomyConfig {
+  const stored = (value ?? {}) as { tasks?: unknown; models?: unknown; profiles?: unknown; profile?: unknown }
+  const tasks = cleanRoutes(stored.tasks)
   const models: Record<string, string> = {}
-  const rawModels = (value as { models?: unknown } | undefined)?.models
-  if (rawModels && typeof rawModels === 'object') {
-    for (const [name, id] of Object.entries(rawModels as Record<string, unknown>)) {
+  if (stored.models && typeof stored.models === 'object') {
+    for (const [name, id] of Object.entries(stored.models as Record<string, unknown>)) {
       if (typeof id === 'string' && id.trim() && isModelName(name)) models[name] = id.trim()
     }
   }
-  return { tasks, models }
+  const out: LobotomyConfig = { tasks, models }
+  if (stored.profiles && typeof stored.profiles === 'object') {
+    const profiles: Record<string, Record<string, LobotomyRoute>> = {}
+    for (const [name, routes] of Object.entries(stored.profiles as Record<string, unknown>)) {
+      if (isProfileName(name)) profiles[name] = cleanRoutes(routes)
+    }
+    if (Object.keys(profiles).length) out.profiles = profiles
+  }
+  if (typeof stored.profile === 'string' && profileRoutes(out, stored.profile)) out.profile = stored.profile
+  return out
 }
 
 /** The Select value that shows `model`: an alias, a catalog name, `inherit`, or `custom`. */
@@ -200,21 +425,14 @@ export function modelChoice(model: string | undefined, config: LobotomyConfig = 
   return modelNames(config).includes(model) ? model : CUSTOM
 }
 
-/** One line per configured route, for `/lobotomy status`. */
+/** One line per route in force, for `/lobotomy status`; a profile's are marked. */
 export function describeConfig(config: LobotomyConfig): string {
-  const keys = Object.keys(config.tasks)
   const catalog = Object.entries(config.models ?? {}).sort(([a], [b]) => a.localeCompare(b))
   const models = catalog.length ? '\n\nmodels:\n' + catalog.map(([name, id]) => `  ${name.padEnd(16)} ${id}`).join('\n') : ''
-  if (keys.length === 0) return 'nothing routed; every task uses the session model.' + models
-  const order = new Map(TASKS.map((task, i) => [task.id, i] as const))
-  keys.sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99) || a.localeCompare(b))
-  return keys
-    .map(key => {
-      const route = config.tasks[key] ?? {}
-      const level = isLevel(route.level) ? ` (effort ${route.level})` : ''
-      return `${key.padEnd(18)} ${route.model ?? 'inherit'}${level}`
-    })
-    .join('\n') + models
+  const inForce = effective(config)
+  const head = config.profile ? `profile: ${config.profile}\n` : ''
+  if (Object.keys(inForce.tasks).length === 0) return head + 'nothing routed; every task uses the session model.' + models
+  return head + describeRoutes(inForce.tasks, fromProfile(config), `   ← ${config.profile}`).join('\n') + models
 }
 
 /**
@@ -232,6 +450,11 @@ export type Command =
   | { kind: 'model-add'; name: string; id: string }
   | { kind: 'model-rm'; name: string }
   | { kind: 'setup'; ids: string[] | 'all' | null }
+  | { kind: 'profiles' }
+  | { kind: 'profile-use'; name: string | undefined }
+  | { kind: 'profile-show'; name: string }
+  | { kind: 'profile-save'; name: string }
+  | { kind: 'profile-rm'; name: string }
   | { kind: 'error'; message: string }
 
 export function parseCommand(args: string): Command {
@@ -250,6 +473,22 @@ export function parseCommand(args: string): Command {
       return key ? { kind: 'clear', key } : { kind: 'error', message: 'clear needs a task: /lobotomy clear plan' }
     case 'models':
       return { kind: 'models' }
+    case 'profiles':
+      return { kind: 'profiles' }
+    case 'profile': {
+      // profile <name> | profile off | profile show <name> | profile save <name> | profile rm <name>
+      const [, action, name] = words
+      if (!action || action === 'list') return { kind: 'profiles' }
+      if (action === 'off' || action === 'none') return { kind: 'profile-use', name: undefined }
+      if (action === 'show') return name ? { kind: 'profile-show', name } : { kind: 'error', message: 'profile show needs a name: /lobotomy profile show research' }
+      if (action === 'rm' || action === 'remove') return name ? { kind: 'profile-rm', name } : { kind: 'error', message: 'profile rm needs a name: /lobotomy profile rm mine' }
+      if (action === 'save') {
+        if (!name) return { kind: 'error', message: 'profile save needs a name: /lobotomy profile save mine' }
+        if (!isProfileName(name)) return { kind: 'error', message: `"${name}" is not a usable profile name (letters, digits, . _ -; not ${PROFILE_WORDS.join('/')})` }
+        return { kind: 'profile-save', name }
+      }
+      return { kind: 'profile-use', name: action }
+    }
     case 'setup': {
       const rest = words.slice(1)
       if (rest.length === 0) return { kind: 'setup', ids: null }
@@ -289,6 +528,10 @@ export const HELP = [
   '/lobotomy set <task> <model> [effort]',
   '/lobotomy clear <task>    route the task to the session model again',
   '/lobotomy reset           clear every route',
+  '/lobotomy profiles        list the profiles (research, code, doc-review, ...)',
+  '/lobotomy profile <name>  switch a profile on; its routes win for the tasks it names',
+  '/lobotomy profile off     back to your own routes',
+  '/lobotomy profile show <name> | save <name> | rm <name>',
   '/lobotomy setup [all|<id>…]   add models the gateway serves to the catalog',
   '/lobotomy models          list the model catalog',
   '/lobotomy model add <name> <id>   name a model from any provider (glm = glm-5p3-flash)',
@@ -296,6 +539,7 @@ export const HELP = [
   '/quick <question>         ask one question on the "quick" route',
   '',
   'tasks: ' + TASKS.map(t => t.id).join(', '),
+  'profiles: ' + PROFILES.map(p => p.id).join(', '),
   'overrides: agent:<type> (agent:Explore), skill:<name> (skill:code-review)',
   'models: haiku, sonnet, opus, fable, inherit, a catalog name, or a full model id',
   'providers: point ANTHROPIC_BASE_URL at a gateway that serves them (Fireworks, OpenRouter, LiteLLM), then add names here',

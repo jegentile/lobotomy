@@ -16,8 +16,15 @@ import {
   EMPTY_CONFIG,
   HELP,
   LEVEL_CHOICES,
+  PROFILES,
   TASKS,
   describeConfig,
+  describeProfile,
+  describeProfiles,
+  effective,
+  fromProfile,
+  profileNames,
+  profileRoutes,
   gatewayFrom,
   gatewayHeaders,
   isLevel,
@@ -38,7 +45,9 @@ import {
   taskForSkill,
   uncatalogued,
   withModel,
+  withProfile,
   withRoute,
+  withSavedProfile,
 } from './routing'
 
 const PANE = 'lobotomy'
@@ -73,6 +82,16 @@ async function save($: EngineInterface, change: (c: LobotomyConfig) => LobotomyC
   const next = await update($, config, change)
   await $.store.set(STORE_KEY, next)
   return next
+}
+
+/** The routes in force: the person's own with the active profile on top. */
+async function routes($: EngineInterface): Promise<LobotomyConfig> {
+  return effective(await read($, config))
+}
+
+/** Reset clears routes, the catalog and the active profile; saved profiles stay. */
+function cleared(c: LobotomyConfig): LobotomyConfig {
+  return c.profiles ? { ...EMPTY_CONFIG, profiles: c.profiles } : EMPTY_CONFIG
 }
 
 function describeRoute(route: LobotomyRoute): string {
@@ -153,7 +172,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'lobotomy',
       description: 'Pick which model runs each task (main, plan, review, subagents, ...)',
-      argumentHint: '[set <task> <model> [effort] | status | reset]',
+      argumentHint: '[set <task> <model> [effort] | profile <name> | status | reset]',
     })
     await $.command.register({
       name: 'quick',
@@ -185,7 +204,7 @@ export const register: Register = (on, options) => {
     const command = parseCommand(e.args)
     switch (command.kind) {
       case 'pane': {
-        const opened = await $.ui.open({ id: PANE, title: 'Lobotomy', focus: true, closeOnEscape: true, rows: 26 })
+        const opened = await $.ui.open({ id: PANE, title: 'Lobotomy', focus: true, closeOnEscape: true, rows: 28 })
         return {
           text: opened.isPlaced
             ? 'Lobotomy pane opened. Tab moves between fields, Enter picks, Esc closes.'
@@ -197,14 +216,47 @@ export const register: Register = (on, options) => {
       case 'help':
         return { text: HELP }
       case 'reset':
-        await save($, () => EMPTY_CONFIG)
-        return { text: 'every route cleared; all tasks use the session model.' }
+        await save($, cleared)
+        return { text: 'every route cleared and no profile active; all tasks use the session model.' }
       case 'clear':
         await save($, c => withRoute(c, command.key, {}))
         return { text: `${command.key} routes to the session model again.` }
       case 'set': {
-        await save($, c => withRoute(c, command.key, command.route))
-        return { text: `${command.key} → ${describeRoute(command.route)}` }
+        const next = await save($, c => withRoute(c, command.key, command.route))
+        const shadow = fromProfile(next).has(command.key) ? ` (profile ${next.profile} routes ${command.key} while it is on; /lobotomy profile off to use this)` : ''
+        return { text: `${command.key} → ${describeRoute(command.route)}${shadow}` }
+      }
+      case 'profiles':
+        return { text: describeProfiles(await read($, config)) }
+      case 'profile-show':
+        return { text: describeProfile(await read($, config), command.name) }
+      case 'profile-use': {
+        if (command.name === undefined) {
+          const was = (await read($, config)).profile
+          await save($, c => withProfile(c, undefined))
+          return { text: was ? `profile ${was} off; your own routes are in force.` : 'no profile was active.' }
+        }
+        const name = command.name
+        if (!profileRoutes(await read($, config), name)) return { text: `no profile "${name}"; one of ${profileNames(await read($, config)).map(p => p.id).join(', ')}` }
+        const next = await save($, c => withProfile(c, name))
+        return { text: `profile ${name} on.\n\n${describeConfig(next)}` }
+      }
+      case 'profile-save': {
+        const own = (await read($, config)).tasks
+        if (Object.keys(own).length === 0) return { text: 'nothing to save: you have no routes of your own yet (/lobotomy set <task> <model>).' }
+        const builtIn = PROFILES.some(p => p.id === command.name)
+        await save($, c => withSavedProfile(c, command.name, c.tasks))
+        return { text: `saved your ${Object.keys(own).length} route${Object.keys(own).length === 1 ? '' : 's'} as profile ${command.name}${builtIn ? ' (over the built-in; /lobotomy profile rm restores it)' : ''}; /lobotomy profile ${command.name} switches it on.` }
+      }
+      case 'profile-rm': {
+        const before = await read($, config)
+        if (!before.profiles?.[command.name]) {
+          return { text: PROFILES.some(p => p.id === command.name) ? `${command.name} is built in and cannot be removed; save over it to change it.` : `no saved profile "${command.name}"` }
+        }
+        const next = await save($, c => withSavedProfile(c, command.name, undefined))
+        const restored = PROFILES.some(p => p.id === command.name) ? ' (the built-in one is back)' : ''
+        const off = before.profile === command.name && !next.profile ? '; it was active, so it is off now' : ''
+        return { text: `profile ${command.name} removed${restored}${off}.` }
       }
       case 'models': {
         const models = Object.entries((await read($, config)).models).sort(([a], [b]) => a.localeCompare(b))
@@ -249,7 +301,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'quick' }, async ($, e) => {
     const question = e.args.trim()
     if (!question) return { text: 'Usage: /quick <question>' }
-    const route = routeFor(await read($, config), 'quick')
+    const route = routeFor(await routes($), 'quick')
     await update($, turnTask, () => 'quick')
     // A command's hook holds the turn, so the prompt is submitted just after it.
     $.clock.after(0, () => void $.prompt.submit({ text: question }))
@@ -272,7 +324,7 @@ export const register: Register = (on, options) => {
 
   // A skill's expansion assigns the rest of the turn to its task.
   on('skill.prompt', async ($, e, next) => {
-    const task = taskForSkill(await read($, config), e.skill)
+    const task = taskForSkill(await routes($), e.skill)
     if (task) await update($, turnTask, () => task)
     return next(e)
   })
@@ -286,12 +338,14 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined) return yield* next(e)
-    const hit = resolveMain(await read($, config), { turnTask: await read($, turnTask), mode: await read($, mode) })
+    const cfg = await read($, config)
+    const hit = resolveMain(effective(cfg), { turnTask: await read($, turnTask), mode: await read($, mode) })
     if (!hit) return yield* next(e)
     const request = { ...e }
     if (isRouted(hit.route.model)) request.model = await modelId($, hit.route.model)
     if (isLevel(hit.route.level)) request.effort = hit.route.level as Effort
-    const label = `${hit.task} → ${request.model}${isLevel(hit.route.level) ? ` @ ${hit.route.level}` : ''}`
+    const tag = fromProfile(cfg).has(hit.task) ? `[${cfg.profile}] ` : ''
+    const label = `${tag}${hit.task} → ${request.model}${isLevel(hit.route.level) ? ` @ ${hit.route.level}` : ''}`
     $.ui.status(`🧠 ${label}`)
     await update($, lastRoute, () => label)
     return yield* next(request)
@@ -306,14 +360,14 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    const hit = resolveSpawn(await read($, config), e)
+    const hit = resolveSpawn(await routes($), e)
     if (!hit || !isRouted(hit.route.model)) return next(e)
     $.ui.notice(e.tool_use_id, `lobotomy: ${hit.task} → ${hit.route.model}`)
     return next({ ...e, model: await modelId($, hit.route.model) })
   })
 
   on('model.complete', async ($, e, next) => {
-    const route = routeFor(await read($, config), 'helper')
+    const route = routeFor(await routes($), 'helper')
     if (!route) return next(e)
     const request = { ...e }
     if (isRouted(route.model)) request.model = await modelId($, route.model)
@@ -323,7 +377,7 @@ export const register: Register = (on, options) => {
 
   // Experimental: summarize with the "compact" model instead of the engine's.
   on('session.compact', async ($, e, next) => {
-    const route = routeFor(await read($, config), 'compact')
+    const route = routeFor(await routes($), 'compact')
     if (!route || !isRouted(route.model) || e.messages.length < 6) return next(e)
     const cut = keepFrom(e.messages)
     const summarized = e.messages.slice(0, cut)
@@ -390,6 +444,11 @@ export const register: Register = (on, options) => {
       })()
     }
 
+    const shadowed = fromProfile(cfg)
+    const inForce = effective(cfg).tasks
+    const profileOptions = [{ value: 'none', label: 'none' }, ...profileNames(cfg).map(p => ({ value: p.id }))]
+    const activeHint = cfg.profile ? profileNames(cfg).find(p => p.id === cfg.profile)?.hint : undefined
+
     const row = (key: string, label: string, hint: string) => {
       const current = cfg.tasks[key] ?? {}
       const choice = modelChoice(current.model, cfg)
@@ -405,6 +464,7 @@ export const register: Register = (on, options) => {
             <Select key={`model:${key}`} options={modelOptions} value={choice} onSelect={pick(key, 'model')} />
             <Select key={`level:${key}`} label="effort" options={levelOptions} value={isLevel(current.level) ? current.level : 'default'} onSelect={pick(key, 'level')} />
             {choice === CUSTOM && editing !== key && <Text color="suggestion">{current.model}</Text>}
+            {shadowed.has(key) && <Text color="warning">← {cfg.profile}: {describeRoute(inForce[key] ?? {})}</Text>}
           </Box>
           {editing === key && (
             <Box flexDirection="row" gap={1} paddingLeft={13}>
@@ -447,11 +507,31 @@ export const register: Register = (on, options) => {
         </Box>
         <Box paddingLeft={2} flexDirection="column">
           <Text dimColor>
-            session model <Text color="text">{session}</Text> · {routedCount === 0 ? 'nothing routed yet' : `${routedCount} route${routedCount === 1 ? '' : 's'}`}
+            session model <Text color="text">{session}</Text>{cfg.profile ? ' · profile ' : ''}
+            {cfg.profile ? <Text color="warning">{cfg.profile}</Text> : null} · {routedCount === 0 ? 'nothing routed yet' : `${routedCount} route${routedCount === 1 ? '' : 's'}`}
             {route ? ' · last: ' : ''}
             {route ? <Text color="success">{route}</Text> : null}
           </Text>
         </Box>
+        <Text> </Text>
+        <Box flexDirection="row" gap={1}>
+          <Box width={12}>
+            <Text color="permission" bold>
+              Profile
+            </Text>
+          </Box>
+          <Select
+            key="profile"
+            options={profileOptions}
+            value={cfg.profile ?? 'none'}
+            onSelect={(value: string) => void save($, c => withProfile(c, value === 'none' ? undefined : value))}
+          />
+        </Box>
+        {wide && (
+          <Box paddingLeft={13}>
+            <Text dimColor>{activeHint ?? 'a set of routes for one kind of work; it wins over your own routes for the tasks it names'}</Text>
+          </Box>
+        )}
         <Text> </Text>
         <Text color="permission" bold>
           Tasks
@@ -525,7 +605,7 @@ export const register: Register = (on, options) => {
         )}
         <Text> </Text>
         <Box flexDirection="row" gap={2}>
-          <Button key="reset" hotkey="r" onPress={() => void save($, () => EMPTY_CONFIG)}>
+          <Button key="reset" hotkey="r" onPress={() => void save($, cleared)}>
             Reset all
           </Button>
           <Button key="close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })}>

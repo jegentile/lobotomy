@@ -10,9 +10,18 @@ export type LobotomyRoute = { model?: string; level?: string }
  * The whole configuration: one route per task id or override key
  * (`main`, `plan`, `agent:Explore`, `skill:code-review`, ...), and a model
  * catalog: short names for models from any provider the session's gateway
- * serves (`glm` → `glm-5p3-flash`), offered in every route's picker.
+ * serves (`glm` → `glm-5p3-flash`), offered in every route's picker. A
+ * profile is a named set of routes for one kind of work (research, code,
+ * ...) switched on as a whole.
  */
-export type LobotomyConfig = { tasks: Record<string, LobotomyRoute>; models: Record<string, string> }
+export type LobotomyConfig = {
+  tasks: Record<string, LobotomyRoute>
+  models: Record<string, string>
+  /** Profiles the person saved (`/lobotomy profile save <name>`); a saved name shadows a built-in one. */
+  profiles?: Record<string, Record<string, LobotomyRoute>>
+  /** The active profile, whose routes win over `tasks` for every task it names. */
+  profile?: string
+}
 
 declare module 'claude-code' {
   interface PluginState {
